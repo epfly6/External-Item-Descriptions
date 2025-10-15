@@ -11,8 +11,8 @@ EID.isRepentance = REPENTANCE or EID.isRepentancePlus -- REPENTANCE variable can
 require("eid_config")
 EID.Config = EID.UserConfig
 EID.Config.Version = "3.2" -- note: changing this will reset everyone's settings to default!
-EID.ModVersion = 5.06
-EID.ModVersionCommit = "f43b628"
+EID.ModVersion = 5.09
+EID.ModVersionCommit = "42f947e"
 EID.DefaultConfig.Version = EID.Config.Version
 EID.isHidden = false
 EID.player = nil -- The primary Player Entity of Player 1
@@ -658,7 +658,7 @@ function EID:printDescription(desc, cachedID)
 			if not EID.Config["ShowQuality"] then
 				curName = curName.." - "
 			end
-			curName = curName..""..(EID.ItemPoolTypeToMarkup[desc.ItemPoolType] or "{{ItemPoolTreasure}}")
+			curName = curName..""..(EID.ItemPoolTypeToMarkup[desc.ItemPoolType] or "{{ItemPoolUnknown}}")
 		end
 	end
 	-- Display the mod this item is from
@@ -720,6 +720,25 @@ function EID:printDescription(desc, cachedID)
 			end
 		end
 	end
+	-- Display Possible Pool for Collectible
+	if EID.isRepentance and EID.Config["ShowContainItemPool"] and (desc.ObjType == 5 and desc.ObjVariant == 100 and desc.ObjSubType ~= nil) then
+		local itemConfig = EID.itemConfig:GetCollectible(desc.ObjSubType)
+		if itemConfig:IsCollectible() then
+			local pools = EID:GetPoolsForCollectible(desc.ObjSubType)
+			if pools and #pools > 0 then
+				local poolName = "{{ItemPool}} {{NoLB}}"
+
+				for _, pool in ipairs(pools) do
+					if EID.ItemPoolTypeToMarkup[pool] then
+						poolName = poolName .. "" .. EID.ItemPoolTypeToMarkup[pool]
+					end
+				end
+
+				renderPos = EID:printBulletPoints(poolName, renderPos, desc.IgnoreBulletPointIconConfig)
+			end
+		end
+	end
+
 	-- Display Last Pool for Collectible for full reroll effects (name)
 	if desc.ItemPoolType and not EID.InsideItemReminder and EID.Config["ShowItemPoolText"] then
 		local itemConfig = EID.itemConfig:GetCollectible(desc.ObjSubType)
@@ -729,7 +748,8 @@ function EID:printDescription(desc, cachedID)
 			local poolName = ""
 			local poolDescPrepend = EID:getDescriptionEntry("itemPoolFor")
 			local poolDescTable = EID:getDescriptionEntry("itemPoolNames")
-			poolName = "{{"..EID.Config["ItemPoolTextColor"].."}}"..poolDescPrepend..""..(EID.ItemPoolTypeToMarkup[lastPool] or "{{ItemPoolTreasure}}")..poolDescTable[lastPool] .. "{{CR}}#"
+			local poolDescTableEng = EID:getDescriptionEntryEnglish("itemPoolNames")
+			poolName = "{{RolledItemPool}} {{NoLB}}{{"..EID.Config["ItemPoolTextColor"].."}}"..poolDescPrepend..""..(EID.ItemPoolTypeToMarkup[lastPool] or "{{ItemPoolUnknown}}")..(poolDescTable[lastPool] or poolDescTableEng[lastPool] or "Modded item pool") .. "{{CR}}#"
 
 			renderPos = EID:printBulletPoints(poolName, renderPos, desc.IgnoreBulletPointIconConfig)
 		end
@@ -747,30 +767,37 @@ end
 function EID:printBulletPoints(description, renderPos, ignoreBPConfig)
 	local textboxWidth = tonumber(EID.Config["TextboxWidth"])
 	local textScale = Vector(EID.Scale, EID.Scale)
+	local textOffset = Vector(12 * EID.Scale, 0) -- offset of the text to the bullet point
+	local bulletpointOffset = Vector(-3 * EID.Scale, 0) -- offset of bulletpoint icons relative to the default bulletpoint
+
 	description = EID:replaceNameMarkupStrings(description)
 	description = EID:replaceShortMarkupStrings(description)
 	description = EID:replaceMarkupSize(description)
 	for line in string.gmatch(description, "([^#]+)") do
+		local numIndentations = 0
+		line, numIndentations = EID:handleTextIndentation(line)
 		local formatedLines = EID:fitTextToWidth(line, textboxWidth, EID.BreakUtf8CharsLanguage[EID:getLanguage()])
 		local textColor = EID:getTextColor()
+
+		local indentOffset = textOffset * numIndentations
 		for i, lineToPrint in ipairs(formatedLines) do
 			-- render bulletpoint
 			if i == 1 then
 				local bpIcon, rejectedIcon = EID:handleBulletpointIcon(lineToPrint, ignoreBPConfig)
 				if EID:getIcon(bpIcon) ~= EID.InlineIcons["ERROR"] then
 					lineToPrint = string.gsub(lineToPrint, bpIcon, "", 1)
-					textColor =	EID:renderString(bpIcon, renderPos + Vector(-3 * EID.Scale, 0), textScale , textColor, true)
+					textColor =	EID:renderString(bpIcon, renderPos + bulletpointOffset + indentOffset, textScale , textColor, true)
 				else
 					if rejectedIcon then lineToPrint = string.gsub(lineToPrint, rejectedIcon, "", 1) end
-					textColor =	EID:renderString(bpIcon, renderPos, textScale , textColor)
+					textColor =	EID:renderString(bpIcon, renderPos + indentOffset, textScale , textColor)
 				end
 				EID.LastRenderCallColor = EID:copyKColor(textColor) -- Save line start Color for eventual Color Reset call
 			end
 			-- Remove leading spaces
 			lineToPrint = lineToPrint:match('^%s*(.*)')
 			-- render text
-			textColor =	EID:renderString(lineToPrint, renderPos + Vector(12 * EID.Scale, 0), textScale, textColor)
-				renderPos.Y = renderPos.Y + EID.lineHeight * EID.Scale
+			textColor =	EID:renderString(lineToPrint, renderPos + textOffset + indentOffset, textScale, textColor)
+			renderPos.Y = renderPos.Y + EID.lineHeight * EID.Scale
 		end
 	end
 	return renderPos
